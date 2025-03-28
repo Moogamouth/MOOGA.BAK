@@ -4,7 +4,22 @@ import os
 import subprocess
 import hashlib
 import shutil
-import json
+import sqlite3
+
+conn = sqlite3.connect("data.db")
+cursor = conn.cursor()
+
+cursor.execute("""
+CREATE TABLE IF NOT EXISTS chunks (
+    hash TEXT PRIMARY KEY,
+    count INTEGER DEFAULT 0
+)
+""")
+conn.commit()
+
+cursor.execute("SELECT hash FROM chunks ORDER BY ROWID DESC LIMIT 1")
+row = cursor.fetchone()
+hash = row[0] if row else ""
 
 with open("start.txt", "r") as f:
     start = int(f.read())
@@ -27,16 +42,9 @@ for i, result in enumerate(search, start=start):
             pass
 
 command = ["zpaq", "add", compressed, downloads, "-m5"]
-subprocess.run(command, check=True)
-shutil.rmtree(downloads)
+subprocess.run(command)
 
-with open("chunks.json", "r") as f:
-    data = json.load(f)
-hashes = list(data.keys())
-if hashes:
-    hash = hashes[-1]
-else:
-    hash = ""
+shutil.rmtree(downloads)
 
 with open(compressed, "rb") as rf:
     while True:
@@ -45,17 +53,17 @@ with open(compressed, "rb") as rf:
             break
         chunk = hash.encode("utf-8") + buf
         hash = hashlib.sha256(chunk).hexdigest()
+
         path = os.path.join(archive, hash + ".bin")
         with open(path, "wb") as wf:
             wf.write(chunk)
 
-        with open("chunks.json", "r") as f:
-            data = json.load(f)
-        data[hash] = 0
-        with open("chunks.json", "w") as f:
-            json.dump(data, f)
-        
-os.remove(compressed)
-
+        cursor.execute("INSERT OR IGNORE INTO chunks (hash) VALUES (?)", (hash,))
+        conn.commit()
+    
 with open("start.txt", "w") as f:
     f.write(str(end))
+
+os.remove(compressed)
+
+conn.close()

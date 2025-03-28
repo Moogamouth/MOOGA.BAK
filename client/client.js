@@ -11,9 +11,8 @@ ws.onopen = () => {
 }
 
 ws.onmessage = (message) => {
-    const { event, data } = JSON.parse(message);
+    const { event, filename, fileData } = JSON.parse(message);
     if (event === "upload") {
-        const { filename, fileData } = data;
         const filePath = path.join(chunksPath, filename);
         fs.writeFileSync(filePath, fileData);
     }
