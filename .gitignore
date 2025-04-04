@@ -298,6 +298,11 @@ dist
 .yarn/install-state.gz
 .pnp.*
 
-*.zpaq
-downloads/*
-archive/*
+server/archive.zpaq
+server/downloads/*
+server/archive/*
+server/start.txt
+server/data.db
+
+client/chunks/*
+client/config.json

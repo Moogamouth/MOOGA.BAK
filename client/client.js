@@ -5,23 +5,30 @@ const crypto = require("crypto");
 
 const ws = new WebSocket("ws://localhost:8080");
 
-const chunksPath = path.join(__dirname, "chunks");
-const passwordPath = path.join(__dirname, "password.txt");
-
-let password = fs.readFileSync(passwordPath, "utf8");
-if (password === "") {
+let {password, lastExec} = JSON.parse(fs.readFileSync("config.json", "utf8"));
+if (!password) {
     password = crypto.randomBytes(16).toString("hex");
-    fs.writeFileSync(passwordPath, password, "utf8");
+}
+
+let currentChunks;
+if (Date.now() - lastExec > 1000 * 60 * 60 * 24) {
+    currentChunks = fs.readdirSync("chunks");
 }
 
 ws.onopen = () => {
-    ws.send(JSON.stringify({password, currentChunks: fs.readdirSync(chunksPath)}));
+    ws.send(JSON.stringify({password, currentChunks: currentChunks}));
 };
 
 ws.onmessage = (message) => {
     const {event, filename, fileData} = JSON.parse(message.data);
     if (event === "upload") {
-        const filePath = path.join(chunksPath, filename);
+        const filePath = path.join("chunks", filename);
         fs.writeFileSync(filePath, fileData);
     }
 };
+
+process.on("SIGINT", () => {
+    const config = {password, lastExec: Date.now()};
+    fs.writeFileSync("config.json", JSON.stringify(config), "utf8");
+    process.exit(0);
+});
