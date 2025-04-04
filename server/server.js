@@ -12,10 +12,8 @@ const archivePath = path.join(__dirname, "archive");
 const db = new sqlite3.Database("data.db", () => {
     db.run(`
         CREATE TABLE IF NOT EXISTS users (
-            username TEXT PRIMARY KEY,
-            password TEXT,
+            password TEXT PRIMARY KEY,
             lastSeen INTEGER,
-            allChunks TEXT,
             currentChunks TEXT
         )
     `);
@@ -24,45 +22,40 @@ const db = new sqlite3.Database("data.db", () => {
 wss.on("connection", (ws) => {
     ws.on("message", (message) => {
         const data = JSON.parse(message);
-        const {username, password, currentChunks = []} = data;
-        ws.username = username;
+        const {password, currentChunks = []} = data;
+        ws.password = password;
 
-        db.get("SELECT * FROM users WHERE username = ?", [username], (err, user) => {
+        db.get("SELECT * FROM users WHERE password = ?", [ws.password], (err, user) => {
             if (!user) {
                 db.run(
-                    `INSERT INTO users (username, password, lastSeen, allChunks, currentChunks) VALUES (?, ?, ?, ?, ?)`,
-                    [username, password, Date.now(), JSON.stringify([]), JSON.stringify([])]
+                    `INSERT INTO users (password, currentChunks) VALUES (?, ?)`,
+                    [password, JSON.stringify([])]
                 );
-            } else {
-                if (password !== user.password) {
-                    ws.close();
-                    return;
-                }
-
-                const allChunks = JSON.parse(user.allChunks);
-                const updatedChunks = currentChunks.filter(hash => allChunks.includes(hash));
-                
-                if (user.currentChunks === "[]") {
-                    updatedChunks.forEach(hash => {
-                        db.run(
-                            `UPDATE chunks SET count = count + 1 WHERE hash = ?`,
-                            [hash]
-                        );
-                    });
-                }
-
+            } else if (user.currentChunks === "[]") {
                 db.run(
-                    `UPDATE users SET currentChunks = ?, lastSeen = ? WHERE username = ?`,
-                    [JSON.stringify(updatedChunks), Date.now(), username]
+                    `UPDATE users SET currentChunks = ? WHERE password = ?`,
+                    [JSON.stringify(currentChunks), password]
                 );
+                currentChunks.forEach(hash => {
+                    db.run(
+                        `UPDATE chunks SET count = count + 1 WHERE hash = ?`,
+                        [hash]
+                    );
+                });
             }
         });
+    });
 
-        setInterval(() => {
-            db.all("SELECT * FROM chunks", [], (err, chunks) => {
-                const hash = chunks.reduce((lowest, chunk) => {
-                    return chunk.count < lowest.count ? chunk : lowest;
-                }, { hash: null, count: Infinity }).hash;
+    setInterval(() => {
+        db.get("SELECT * FROM users WHERE password = ?", [ws.password], (err, user) => {
+            const currentChunks = JSON.parse(user.currentChunks);
+
+            const placeholders = currentChunks.map(() => "?").join(",");
+            db.get(`SELECT hash FROM chunks WHERE hash NOT IN (${placeholders}) ORDER BY count ASC LIMIT 1`, currentChunks, (err, row) => {
+                if (!row) {
+                    return;
+                }
+                const hash = row.hash;
 
                 const filename = hash + ".bin";
                 const filePath = path.join(archivePath, filename);
@@ -70,33 +63,25 @@ wss.on("connection", (ws) => {
 
                 ws.send(JSON.stringify({event: "upload", filename: filename, fileData: fileData}));
 
-                db.get("SELECT * FROM users WHERE username = ?", [username], (err, user) => {
-                    const allChunks = JSON.parse(user.allChunks);
-                    const currentChunks = JSON.parse(user.currentChunks);
+                currentChunks.push(hash);
 
-                    if (!allChunks.includes(hash)) {
-                        allChunks.push(hash);
-                    }
-                    currentChunks.push(hash);
-
-                    db.run(
-                        `UPDATE users SET allChunks = ?, currentChunks = ? WHERE username = ?`,
-                        [JSON.stringify(allChunks), JSON.stringify(currentChunks), username]
-                    );
-                });
+                db.run(
+                    `UPDATE users SET currentChunks = ? WHERE password = ?`,
+                    [JSON.stringify(currentChunks), ws.password]
+                );
 
                 db.run(
                     `UPDATE chunks SET count = count + 1 WHERE hash = ?`,
                     [hash]
                 );
             });
-        } , 10000);
-    });
+        });
+    }, 10000);
 
     ws.on("close", () => {
         db.run(
-            `UPDATE users SET lastSeen = ? WHERE username = ?`,
-            [Date.now(), ws.username]
+            `UPDATE users SET lastSeen = ? WHERE password = ?`,
+            [Date.now(), ws.password]
         );
     });
 });
@@ -106,7 +91,7 @@ server.listen(8080);
 setInterval(() => {
     db.all("SELECT * FROM users", [], (err, users) => {
         users.forEach((user) => {
-            if (Date.now() - user.lastSeen > 2592000000 && !Array.from(wss.clients).some((client) => client.username === user.username)) {
+            if (Date.now() - user.lastSeen > 2592000000 && !Array.from(wss.clients).some((client) => client.password === user.password)) {
                 const currentChunks = JSON.parse(user.currentChunks);
                 currentChunks.forEach((hash) => {
                     db.run(
@@ -116,8 +101,8 @@ setInterval(() => {
                 });
 
                 db.run(
-                    `UPDATE users SET currentChunks = ? WHERE username = ?`,
-                    [JSON.stringify([]), user.username]
+                    `UPDATE users SET currentChunks = ? WHERE password = ?`,
+                    [JSON.stringify([]), user.password]
                 );
             }
         });

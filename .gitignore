@@ -299,5 +299,5 @@ dist
 .pnp.*
 
 *.zpaq
-downloads/
-archive/
+downloads/*
+archive/*
