@@ -10,7 +10,7 @@ const wss = new WebSocket.Server({server});
 const db = new sqlite3.Database("data.db", () => {
     db.run(`
         CREATE TABLE IF NOT EXISTS users (
-            password TEXT PRIMARY KEY,
+            uuid TEXT PRIMARY KEY,
             lastSeen INTEGER,
             currentChunks TEXT
         )
@@ -20,19 +20,19 @@ const db = new sqlite3.Database("data.db", () => {
 wss.on("connection", (ws) => {
     ws.on("message", (message) => {
         const data = JSON.parse(message);
-        const {password, currentChunks = []} = data;
-        ws.password = password;
+        const {uuid, currentChunks = []} = data;
+        ws.uuid = uuid;
 
-        db.get("SELECT * FROM users WHERE password = ?", [ws.password], (err, user) => {
+        db.get("SELECT * FROM users WHERE uuid = ?", [ws.uuid], (err, user) => {
             if (!user) {
                 db.run(
-                    `INSERT INTO users (password, currentChunks) VALUES (?, ?)`,
-                    [password, JSON.stringify([])]
+                    `INSERT INTO users (uuid, currentChunks) VALUES (?, ?)`,
+                    [uuid, JSON.stringify([])]
                 );
             } else if (user.currentChunks === "[]") {
                 db.run(
-                    `UPDATE users SET currentChunks = ? WHERE password = ?`,
-                    [JSON.stringify(currentChunks), password]
+                    `UPDATE users SET currentChunks = ? WHERE uuid = ?`,
+                    [JSON.stringify(currentChunks), uuid]
                 );
                 currentChunks.forEach(hash => {
                     db.run(
@@ -45,7 +45,7 @@ wss.on("connection", (ws) => {
     });
 
     setInterval(() => {
-        db.get("SELECT * FROM users WHERE password = ?", [ws.password], (err, user) => {
+        db.get("SELECT * FROM users WHERE uuid = ?", [ws.uuid], (err, user) => {
             const currentChunks = JSON.parse(user.currentChunks);
 
             const placeholders = currentChunks.map(() => "?").join(",");
@@ -64,8 +64,8 @@ wss.on("connection", (ws) => {
                 currentChunks.push(hash);
 
                 db.run(
-                    `UPDATE users SET currentChunks = ? WHERE password = ?`,
-                    [JSON.stringify(currentChunks), ws.password]
+                    `UPDATE users SET currentChunks = ? WHERE uuid = ?`,
+                    [JSON.stringify(currentChunks), ws.uuid]
                 );
 
                 db.run(
@@ -78,8 +78,8 @@ wss.on("connection", (ws) => {
 
     ws.on("close", () => {
         db.run(
-            `UPDATE users SET lastSeen = ? WHERE password = ?`,
-            [Date.now(), ws.password]
+            `UPDATE users SET lastSeen = ? WHERE uuid = ?`,
+            [Date.now(), ws.uuid]
         );
     });
 });
@@ -89,7 +89,7 @@ server.listen(8080);
 setInterval(() => {
     db.all("SELECT * FROM users", [], (err, users) => {
         users.forEach((user) => {
-            if (Date.now() - user.lastSeen > 1000 * 60 * 60 * 24 * 30 && !Array.from(wss.clients).some((client) => client.password === user.password)) {
+            if (Date.now() - user.lastSeen > 1000 * 60 * 60 * 24 * 30 && !Array.from(wss.clients).some((client) => client.uuid === user.uuid)) {
                 const currentChunks = JSON.parse(user.currentChunks);
                 currentChunks.forEach((hash) => {
                     db.run(
@@ -99,8 +99,8 @@ setInterval(() => {
                 });
 
                 db.run(
-                    `UPDATE users SET currentChunks = ? WHERE password = ?`,
-                    [JSON.stringify([]), user.password]
+                    `UPDATE users SET currentChunks = ? WHERE uuid = ?`,
+                    [JSON.stringify([]), user.uuid]
                 );
             }
         });

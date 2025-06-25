@@ -25,7 +25,6 @@ CREATE TABLE IF NOT EXISTS chunks (
     count INTEGER DEFAULT 0
 )
 """)
-conn.commit()
 
 cursor.execute("SELECT hash FROM chunks ORDER BY ROWID DESC LIMIT 1")
 row = cursor.fetchone()
@@ -40,7 +39,7 @@ else:
 search = internetarchive.search_items("*", sorts=["addeddate asc"])
 search = islice(search, start, None)
 for i, result in enumerate(search):
-    if get_folder_size("downloads") > 100:
+    if get_folder_size("downloads") > 100 * 1024 * 1024 * 1024:
         break
     id = result["identifier"]
     try:
@@ -61,7 +60,7 @@ shutil.rmtree("downloads")
 
 with open("archive.zpaq", "rb") as rf:
     while True:
-        buf = rf.read(10)
+        buf = rf.read(1024 * 1024 * 1024)
         if not buf:
             break
         chunk = hash.encode("utf-8") + buf
@@ -72,8 +71,9 @@ with open("archive.zpaq", "rb") as rf:
             wf.write(chunk)
 
         cursor.execute("INSERT OR IGNORE INTO chunks (hash) VALUES (?)", (hash,))
-        conn.commit()
-    
+
+conn.commit()
+  
 with open("start.txt", "w") as f:
     f.write(str(start))
 
